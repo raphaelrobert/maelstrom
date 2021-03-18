@@ -15,15 +15,29 @@ impl Codec for MLSPlaintext {
         Ok(())
     }
     fn decode(cursor: &mut Cursor) -> Result<Self, CodecError> {
+        log_content!(debug, "Decoding MLSPlaintext {:x?}", cursor.raw());
         let group_id = GroupId::decode(cursor)?;
+        log_content!(trace, "  Decoded group ID: {:x?}", group_id.value);
         let epoch = GroupEpoch::decode(cursor)?;
+        log_content!(trace, "  Decoded epoch: {:?}", epoch);
         let sender = Sender::decode(cursor)?;
+        log_content!(trace, "  Decoded sender: {:?}", sender);
         let authenticated_data = decode_vec(VecSize::VecU32, cursor)?;
+        log_content!(
+            trace,
+            "  Decoded authenticated_data: {:x?}",
+            authenticated_data
+        );
         let content_type = ContentType::decode(cursor)?;
-        let content = MLSPlaintextContentType::decode(cursor)?;
+        log_content!(trace, "  Decoded content_type: {:?}", content_type);
+        let content = MLSPlaintextContentType::decode(content_type, cursor)?;
+        log_content!(trace, "  Decoded content: {:x?}", content);
         let signature = Signature::decode(cursor)?;
+        log_content!(trace, "  Decoded signature: {:?}", signature);
         let confirmation_tag = Option::<ConfirmationTag>::decode(cursor)?;
+        log_content!(trace, "  Decoded confirmation_tag: {:?}", confirmation_tag);
         let membership_tag = Option::<MembershipTag>::decode(cursor)?;
+        log_content!(trace, "  Decoded membership_tag: {:?}", membership_tag);
 
         Ok(MLSPlaintext {
             group_id,
@@ -51,12 +65,22 @@ impl Codec for MLSCiphertext {
     }
 
     fn decode(cursor: &mut Cursor) -> Result<Self, CodecError> {
+        log::debug!("Decoding MLSCiphertext {:x?}", cursor.raw());
         let group_id = GroupId::decode(cursor)?;
+        log::trace!("Decoded group ID: {:x?}", group_id.value);
         let epoch = GroupEpoch::decode(cursor)?;
+        log::trace!("Decoded epoch: {:?}", epoch);
         let content_type = ContentType::decode(cursor)?;
+        log::trace!("Decoded content_type: {:?}", content_type);
         let authenticated_data = decode_vec(VecSize::VecU32, cursor)?;
+        log::trace!("Decoded authenticated_data: {:x?}", authenticated_data);
         let encrypted_sender_data = decode_vec(VecSize::VecU8, cursor)?;
+        log::trace!(
+            "Decoded encrypted_sender_data: {:x?}",
+            encrypted_sender_data
+        );
         let ciphertext = decode_vec(VecSize::VecU32, cursor)?;
+        log::trace!("Decoded ciphertext: {:x?}", ciphertext);
         Ok(MLSCiphertext {
             group_id,
             epoch,
@@ -82,25 +106,21 @@ impl Codec for MLSPlaintextContentType {
     fn encode(&self, buffer: &mut Vec<u8>) -> Result<(), CodecError> {
         match self {
             MLSPlaintextContentType::Application(application_data) => {
-                ContentType::Application.encode(buffer)?;
                 encode_vec(VecSize::VecU32, buffer, application_data)?;
             }
             MLSPlaintextContentType::Proposal(proposal) => {
-                ContentType::Proposal.encode(buffer)?;
                 proposal.encode(buffer)?;
             }
             MLSPlaintextContentType::Commit(commit) => {
-                ContentType::Commit.encode(buffer)?;
                 commit.encode(buffer)?;
             }
         }
         Ok(())
     }
-    fn decode(cursor: &mut Cursor) -> Result<Self, CodecError> {
-        let content_type = match ContentType::try_from(u8::decode(cursor)?) {
-            Ok(content_type) => content_type,
-            Err(_) => return Err(CodecError::DecodingError),
-        };
+}
+
+impl MLSPlaintextContentType {
+    fn decode(content_type: ContentType, cursor: &mut Cursor) -> Result<Self, CodecError> {
         match content_type {
             ContentType::Application => {
                 let application_data = decode_vec(VecSize::VecU32, cursor)?;
@@ -198,12 +218,33 @@ impl Codec for MLSSenderDataAAD {
     }
 }
 
-impl Codec for MLSCiphertextContent {
-    fn decode(cursor: &mut Cursor) -> Result<Self, CodecError> {
-        let content = MLSPlaintextContentType::decode(cursor)?;
+impl MLSCiphertextContent {
+    pub(crate) fn decode(
+        content_type: ContentType,
+        cursor: &mut Cursor,
+    ) -> Result<Self, CodecError> {
+        log_content!(debug, "Decoding MLSCiphertextContent {:x?}", cursor.raw());
+        let content = match content_type {
+            ContentType::Application => {
+                let application_data = decode_vec(VecSize::VecU32, cursor)?;
+                MLSPlaintextContentType::Application(application_data)
+            }
+            ContentType::Proposal => {
+                let proposal = Proposal::decode(cursor)?;
+                MLSPlaintextContentType::Proposal(proposal)
+            }
+            ContentType::Commit => {
+                let commit = Commit::decode(cursor)?;
+                MLSPlaintextContentType::Commit(commit)
+            }
+        };
+        log_content!(trace, "  Decoded content {:?}", content);
         let signature = Signature::decode(cursor)?;
+        log_content!(trace, "  Decoded signature {:?}", signature);
         let confirmation_tag = Option::<ConfirmationTag>::decode(cursor)?;
+        log_content!(trace, "  Decoded confirmation_tag {:?}", confirmation_tag);
         let padding = decode_vec(VecSize::VecU16, cursor)?;
+        log_content!(trace, "  Decoded padding {:x?}", padding);
         Ok(MLSCiphertextContent {
             content,
             signature,
