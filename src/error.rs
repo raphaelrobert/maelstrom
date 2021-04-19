@@ -121,7 +121,7 @@ macro_rules! implement_error {
         }
 
         impl $src_name {
-            pub(crate) fn _description(&self) -> String {
+            pub fn _description(&self) -> String {
                 as_expr! {
                     match self {
                         $(
@@ -162,7 +162,7 @@ impl std::fmt::Display for ErrorString {
 }
 
 impl ErrorString {
-    pub(crate) fn _description(&self) -> String {
+    pub fn _description(&self) -> String {
         self.0.clone()
     }
 }
@@ -192,7 +192,7 @@ impl std::fmt::Display for ErrorPayload {
 }
 
 impl ErrorPayload {
-    pub(crate) fn _description(&self) -> String {
+    pub fn _description(&self) -> String {
         format!("{:?}", self.0.clone())
     }
 }
