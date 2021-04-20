@@ -8,21 +8,16 @@ use serde::{
 pub struct SerializedManagedGroup {
     managed_group_config: ManagedGroupConfig,
     group: MlsGroup,
-    pending_proposals: Vec<MLSPlaintext>,
+    pending_proposals: Vec<MlsPlaintext>,
     own_kpbs: Vec<KeyPackageBundle>,
     aad: Vec<u8>,
     resumption_secret_store: ResumptionSecretStore,
     active: bool,
 }
 
-impl<'a> SerializedManagedGroup {
-    pub(crate) fn into_managed_group(
-        self,
-        credential_bundle: &'a CredentialBundle,
-        callbacks: &ManagedGroupCallbacks,
-    ) -> ManagedGroup<'a> {
+impl SerializedManagedGroup {
+    pub(crate) fn into_managed_group(self, callbacks: &ManagedGroupCallbacks) -> ManagedGroup {
         let mut managed_group = ManagedGroup {
-            credential_bundle,
             managed_group_config: self.managed_group_config,
             group: self.group,
             pending_proposals: self.pending_proposals,
@@ -36,7 +31,7 @@ impl<'a> SerializedManagedGroup {
     }
 }
 
-impl<'a> Serialize for ManagedGroup<'a> {
+impl Serialize for ManagedGroup {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
