@@ -1,15 +1,28 @@
+//! TreeKEM test vectors
+//!
+//! See https://github.com/mlswg/mls-implementations/blob/master/test-vectors.md
+//! for more description on the test vectors.
+//!
+//! The test vector describes a tree of `n` leaves adds a new leaf with
+//! `my_key_package` and `my_path_secret` (common ancestor of `add_sender` and
+//! `my_key_package`).
+//! Then an update, sent by `update_sender` with `update_path` is processed, which
+//! is processed by the newly added leaf as well.
+//!
+//! Some more points
+//! * An empty group context is used.
+//! * update path with empty exclusion list.
+
 use openmls::{prelude::*, test_util::*};
 
 mod utils;
 use utils::managed_utils::*;
 
-use rand::{thread_rng, Rng};
-
 use serde::{self, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct TreeKemTestVector {
-    cipher_suite: u16,
+pub struct TreeKemTestVector {
+    pub cipher_suite: u16,
 
     // Chosen by the generator
     ratchet_tree_before: String,
@@ -48,7 +61,7 @@ fn test_tree_kem_kat() {
 }
 
 #[cfg(any(feature = "expose-test-vectors", test))]
-fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> TreeKemTestVector {
+pub fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> TreeKemTestVector {
     // The test really only makes sense with two or more leaves
     if n_leaves <= 1 {
         panic!("test vector can only be generated with two or more members")
@@ -60,7 +73,6 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
     let managed_group_config =
         ManagedGroupConfig::new(handshake_message_format, update_policy, 0, 0, callbacks);
     let setup = ManagedTestSetup::new(managed_group_config, n_leaves as usize + 10);
-    setup.create_clients();
 
     // - I am the client with key package `my_key_package`
     // - I was added by the client at leaf index add_sender
@@ -79,18 +91,23 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
 
     let mut groups = setup.groups.borrow_mut();
     let group = groups.get_mut(&group_id).unwrap();
-    let remover_index = thread_rng().gen_range(0..n_leaves);
-    println!("remover index: {:?}", remover_index);
-    let mut target_index = thread_rng().gen_range(0..n_leaves);
-    while remover_index == target_index {
-        target_index = thread_rng().gen_range(0..n_leaves);
+    let remover_id = group.random_group_member();
+    let mut target_id = group.random_group_member();
+    while remover_id == target_id {
+        target_id = group.random_group_member();
     }
-    println!("target index: {:?}", target_index);
+    //let remover_index = thread_rng().gen_range(0..n_leaves);
+    println!("remover id: {:?}", remover_id);
+    //let mut target_index = thread_rng().gen_range(0..n_leaves);
+    //while remover_index == target_index {
+    //    target_index = thread_rng().gen_range(0..n_leaves);
+    //}
+    println!("target id: {:?}", target_id);
 
-    let (_, remover_id) = group
+    let (target_index, _) = group
         .members
         .iter()
-        .find(|(index, _)| index == &(remover_index as usize))
+        .find(|(_, id)| id == &target_id)
         .unwrap()
         .clone();
 
@@ -104,22 +121,19 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
         .unwrap();
 
     // We then have the same client who removed the target add a fresh member.
-    let adder_index = remover_index;
-    println!("adder index: {:?}", adder_index);
+    let adder_id = remover_id;
+    println!("adder id: {:?}", adder_id);
+    let (adder_index, _) = group
+        .members
+        .iter()
+        .find(|(_, id)| id == &adder_id)
+        .unwrap()
+        .clone();
     let addees = setup.random_new_members_for_group(group, 1).unwrap();
     println!("adding member with id: {:?}", addees);
 
     let clients = setup.clients.borrow();
-    let remover = clients.get(&remover_id).unwrap().borrow();
-    let remover_groups = remover.groups.borrow();
-    let group_state = remover_groups.get(&group_id).unwrap();
-
-    group_state.print_tree("tree before adding");
-
-    drop(remover_groups);
-
-    // rename to avoid confusion
-    let adder = remover;
+    let adder = clients.get(&adder_id).unwrap().borrow();
 
     // We add the test client manually, so that we can get a hold of the leaf secret.
     let addee = clients.get(&addees[0]).unwrap().borrow();
@@ -128,14 +142,9 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
         .get_fresh_key_package(&addee, &group.ciphersuite)
         .unwrap();
 
-    let addee_kpbs = addee.key_package_bundles.borrow();
-    let my_leaf_secret = addee_kpbs
-        .get(&my_key_package.hash())
-        .unwrap()
-        .get_leaf_secret();
-    drop(addee_kpbs);
+    let my_leaf_secret = addee.key_store.get_leaf_secret(&my_key_package.hash());
 
-    let (messages, welcome_option) = adder
+    let (messages, welcome) = adder
         .add_members(
             ActionType::Commit,
             &group.group_id,
@@ -143,26 +152,28 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
             true,
         )
         .unwrap();
+
     setup
         .distribute_to_members(&adder.identity, group, &messages)
         .unwrap();
-    if let Some(welcome) = welcome_option {
-        setup.deliver_welcome(welcome, group).unwrap();
-    }
+
+    setup.deliver_welcome(welcome.unwrap(), group).unwrap();
 
     let addee_groups = addee.groups.borrow();
-    let group_state = addee_groups.get(&group_id).unwrap();
-    let path_secrets = group_state.export_path_secrets();
+    let addee_group = addee_groups.get(&group_id).unwrap();
+
+    let path_secrets = addee_group.export_path_secrets();
 
     let root_secret_after_add = path_secrets.last().unwrap();
     let my_path_secret = path_secrets.first().unwrap();
 
     let ratchet_tree_extension_before =
-        RatchetTreeExtension::new(group_state.export_ratchet_tree()).to_extension_struct();
+        RatchetTreeExtension::new(addee_group.export_ratchet_tree()).to_extension_struct();
     let ratchet_tree_before = ratchet_tree_extension_before.extension_data();
 
-    let tree_hash_before = group_state.tree_hash();
+    let tree_hash_before = addee_group.tree_hash();
 
+    drop(addee_group);
     drop(addee_groups);
     drop(addee);
 
@@ -180,17 +191,14 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
 
     let updater = clients.get(&updater_id).unwrap().borrow();
     let mut updater_groups = updater.groups.borrow_mut();
-    let updater_group_state = updater_groups.get_mut(&group_id).unwrap();
-    let group_context = updater_group_state
-        .export_group_context()
-        .serialized()
-        .to_vec();
+    let updater_group = updater_groups.get_mut(&group_id).unwrap();
+    let group_context = updater_group.export_group_context().serialized().to_vec();
 
-    let (messages, _) = updater_group_state.self_update(None).unwrap();
+    let (messages, _) = updater_group.self_update(&updater.key_store, None).unwrap();
 
     let update_path = match messages.first().unwrap() {
-        MLSMessage::Plaintext(pt) => match pt.content() {
-            MLSPlaintextContentType::Commit(commit) => commit.path().as_ref().unwrap().clone(),
+        MlsMessage::Plaintext(pt) => match pt.content() {
+            MlsPlaintextContentType::Commit(commit) => commit.path().as_ref().unwrap().clone(),
             _ => panic!("The message should not be anything but a commit."),
         },
         _ => panic!("The message should not be a ciphertext."),
@@ -198,6 +206,7 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
 
     // Drop all the borrows as not to cause problems when having the setup
     // distribute to members.
+    drop(updater_group);
     drop(updater_groups);
     drop(updater);
     drop(adder);
@@ -211,8 +220,8 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
     let clients = setup.clients.borrow();
     let addee = clients.get(&addees[0]).unwrap().borrow();
     let addee_groups = addee.groups.borrow();
-    let group_state = addee_groups.get(&group_id).unwrap();
-    let tree = group_state.export_ratchet_tree();
+    let addee_group = addee_groups.get(&group_id).unwrap();
+    let tree = addee_group.export_ratchet_tree();
 
     let my_key_package_after = tree
         .iter()
@@ -235,11 +244,13 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
 
     assert_eq!(my_key_package, my_key_package_after);
 
-    let root_secret_after_update = group_state.export_root_secret();
+    let path_secrets_after_update = addee_group.export_path_secrets();
+    let root_secret_after_update = path_secrets_after_update.last().unwrap();
+    //let root_secret_after_update = addee.export_root_secret(&group_id).unwrap();
     let ratchet_tree_extension_after =
-        RatchetTreeExtension::new(group_state.export_ratchet_tree()).to_extension_struct();
+        RatchetTreeExtension::new(addee_group.export_ratchet_tree()).to_extension_struct();
     let ratchet_tree_after = ratchet_tree_extension_after.extension_data();
-    let tree_hash_after = group_state.tree_hash();
+    let tree_hash_after = addee_group.tree_hash();
 
     TreeKemTestVector {
         cipher_suite: ciphersuite.name() as u16,
@@ -247,7 +258,7 @@ fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) -> Tre
         // Chosen by the generator
         ratchet_tree_before: bytes_to_hex(&ratchet_tree_before),
 
-        add_sender: adder_index,
+        add_sender: adder_index as u32,
         my_leaf_secret: bytes_to_hex(&my_leaf_secret.as_slice()),
 
         my_key_package: bytes_to_hex(&my_key_package.encode_detached().unwrap()),
