@@ -111,25 +111,18 @@ impl MlsGroup {
         );
 
         // Create provisional group state
-        let mut provisional_epoch = self.group_context.epoch;
-        provisional_epoch.increment();
-
         let confirmed_transcript_hash = update_confirmed_transcript_hash(
             ciphersuite,
-            // It is ok to use `unwrap()` here, because we know the MlsPlaintext contains a Commit
+            // It is ok to use `unwrap()` here, because we know the MlsPlaintext
+            // contains a Commit
             &MlsPlaintextCommitContent::try_from(mls_plaintext).unwrap(),
             &self.interim_transcript_hash,
         )?;
 
-        // TODO #186: Implement extensions
-        let extensions: Vec<Box<dyn Extension>> = Vec::new();
-
-        let provisional_group_context = GroupContext::new(
-            self.group_context.group_id.clone(),
-            provisional_epoch,
+        let provisional_group_context = GroupContext::from_previous_group_context(
+            &self.group_context,
             provisional_tree.tree_hash(),
             confirmed_transcript_hash.clone(),
-            &extensions,
         )?;
 
         // Create key schedule
