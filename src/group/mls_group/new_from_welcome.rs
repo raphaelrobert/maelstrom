@@ -1,6 +1,5 @@
 use log::debug;
 
-use crate::extensions::ExtensionType;
 use crate::group::{mls_group::*, *};
 use crate::key_packages::*;
 use crate::messages::*;
@@ -14,7 +13,7 @@ impl MlsGroup {
         nodes_option: Option<Vec<Option<Node>>>,
         key_package_bundle: KeyPackageBundle,
         psk_fetcher_option: Option<PskFetcher>,
-    ) -> Result<Self, WelcomeError> {
+    ) -> Result<(Self, Vec<ExtensionStruct>), WelcomeError> {
         log::debug!("MlsGroup::new_from_welcome_internal");
         let mls_version = *welcome.version();
         if !Config::supported_versions().contains(&mls_version) {
@@ -67,45 +66,29 @@ impl MlsGroup {
         let group_info_bytes = welcome_key
             .aead_open(welcome.encrypted_group_info(), &[], &welcome_nonce)
             .map_err(|_| WelcomeError::GroupInfoDecryptionFailure)?;
-        let group_info = GroupInfo::decode_detached(&group_info_bytes)?;
+        let mut group_info = GroupInfo::decode_detached(&group_info_bytes)?;
         let path_secret_option = group_secrets.path_secret;
 
-        // Build the ratchet tree
-        // First check the extensions to see if the tree is in there.
-        let mut ratchet_tree_extensions = group_info
-            .extensions()
-            .iter()
-            .filter(|e| e.extension_type() == ExtensionType::RatchetTree)
-            .collect::<Vec<&Box<dyn Extension>>>();
+        // Throw an error if there is more than one ratchet tree extension.
+        // This shouldn't be the case anyway, because extensions are checked
+        // for uniqueness anyway when decoding them.
+        // We have to see if this makes problems later as it's not something
+        // required by the spec right now.
+        if !group_info.extensions_are_unique() {
+            return Err(WelcomeError::DuplicateGroupInfoExtension);
+        }
 
-        let ratchet_tree_extension = if ratchet_tree_extensions.is_empty() {
-            None
-        } else if ratchet_tree_extensions.len() == 1 {
-            let extension = ratchet_tree_extensions
-                .pop()
-                // Unwrappig here is safe because we know we only have one element
-                .unwrap()
-                .as_ratchet_tree_extension()
-                // Unwrapping here is safe, because we know the extension type already
-                .unwrap()
-                // We clone the nodes here upon extraction, so that we don't have to clone
-                // them later when we build the tree
-                .clone();
-            Some(extension)
-        } else {
-            // Throw an error if there is more than one ratchet tree extension.
-            // This shouldn't be the case anyway, because extensions are checked
-            // for uniqueness anyway when decoding them.
-            // We have to see if this makes problems later as it's not something
-            // required by the spec right now.
-            return Err(WelcomeError::DuplicateRatchetTreeExtension);
-        };
+        // Save the group info payload for later
+        let group_info_payload = group_info.unsigned_payload().unwrap();
+
+        // If the group info contains a ratchet tree extension, we extract it
+        let ratchet_tree_extension = group_info.take_ratchet_tree_extension();
 
         // Set nodes either from the extension or from the `nodes_option`.
         // If we got a ratchet tree extension in the welcome, we enable it for
         // this group. Note that this is not strictly necessary. But there's
         // currently no other mechanism to enable the extension.
-        let (nodes, enable_ratchet_tree_extension) = match ratchet_tree_extension {
+        let (nodes, use_ratchet_tree_extension) = match ratchet_tree_extension {
             Some(tree) => (tree.into_vector(), true),
             None => {
                 if let Some(nodes) = nodes_option {
@@ -130,11 +113,10 @@ impl MlsGroup {
         // Verify GroupInfo signature
         let signer_node = tree.nodes[group_info.signer_index()].clone();
         let signer_key_package = signer_node.key_package.unwrap();
-        let payload = group_info.unsigned_payload().unwrap();
 
         signer_key_package
             .credential()
-            .verify(&payload, group_info.signature())
+            .verify(&group_info_payload, group_info.signature())
             .map_err(|_| WelcomeError::InvalidGroupInfoSignature)?;
 
         // Compute path secrets
@@ -197,16 +179,19 @@ impl MlsGroup {
             log_crypto!(trace, "  Expected: {:x?}", group_info.confirmation_tag());
             Err(WelcomeError::ConfirmationTagMismatch)
         } else {
-            Ok(MlsGroup {
-                ciphersuite,
-                group_context,
-                epoch_secrets,
-                secret_tree: RefCell::new(secret_tree),
-                tree: RefCell::new(tree),
-                interim_transcript_hash,
-                use_ratchet_tree_extension: enable_ratchet_tree_extension,
-                mls_version,
-            })
+            Ok((
+                MlsGroup {
+                    ciphersuite,
+                    group_context,
+                    epoch_secrets,
+                    secret_tree: RefCell::new(secret_tree),
+                    tree: RefCell::new(tree),
+                    interim_transcript_hash,
+                    use_ratchet_tree_extension,
+                    mls_version,
+                },
+                group_info.into_extensions(),
+            ))
         }
     }
 

@@ -3,10 +3,7 @@
 use super::*;
 
 use crate::{
-    ciphersuite::signable::Signable,
-    codec::{Codec, CodecError},
-    messages::GroupSecrets,
-    prelude::*,
+    ciphersuite::signable::Signable, codec::Codec, messages::GroupSecrets, prelude::*,
     schedule::KeySchedule,
 };
 
@@ -42,17 +39,12 @@ ctest_ciphersuites!(duplicate_ratchet_tree_extension, test(ciphersuite_name: Cip
             .unwrap();
     let bob_key_package = bob_key_package_bundle.key_package();
 
-    let config = GroupConfig {
-        add_ratchet_tree_extension: true,
-        ..GroupConfig::default()
-    };
-
     let group_id = [5, 6, 7, 8];
     let mut alice_group = MlsGroup::new(
         &group_id,
         ciphersuite.name(),
         alice_key_package_bundle,
-        config,
+        true, /* use ratchet tree extension */
         None, /* Initial PSK */
         None, /* MLS version */
     )
@@ -71,6 +63,7 @@ ctest_ciphersuites!(duplicate_ratchet_tree_extension, test(ciphersuite_name: Cip
             &[],
             false,
             None,
+            vec![], /* Extensions */
         )
         .expect("Error creating commit");
 
@@ -94,7 +87,10 @@ ctest_ciphersuites!(duplicate_ratchet_tree_extension, test(ciphersuite_name: Cip
         &[],
         &[],
     ).expect("Could not decrypt group secrets");
-    let group_secrets = GroupSecrets::decode_detached(&group_secrets_bytes).expect("Could not decode GroupSecrets").config(ciphersuite, ProtocolVersion::default());
+
+    let group_secrets = GroupSecrets::decode_detached(&group_secrets_bytes)
+        .expect("Could not decode GroupSecrets")
+        .config(ciphersuite, ProtocolVersion::default());
     let joiner_secret = group_secrets.joiner_secret;
 
     // Create key schedule
@@ -118,11 +114,13 @@ ctest_ciphersuites!(duplicate_ratchet_tree_extension, test(ciphersuite_name: Cip
 
     let group_info_bytes = welcome_key
         .aead_open(welcome.encrypted_group_info(), &[], &welcome_nonce)
-        .map_err(|_| WelcomeError::GroupInfoDecryptionFailure).expect("Could not decrypt GroupInfo");
-    let mut group_info = GroupInfo::decode_detached(&group_info_bytes).expect("Could not decode GroupInfo");
+        .map_err(|_| WelcomeError::GroupInfoDecryptionFailure)
+        .expect("Could not decrypt GroupInfo");
+    let mut group_info = GroupInfo::decode_detached(&group_info_bytes)
+        .expect("Could not decode GroupInfo");
 
     // Dupicate extensions
-    let extensions = group_info.extensions();
+    let extensions = group_info.extensions().clone();
     let duplicate_extensions = vec![extensions[0].clone(), extensions[0].clone()];
     group_info.set_extensions(duplicate_extensions);
 
@@ -130,7 +128,9 @@ ctest_ciphersuites!(duplicate_ratchet_tree_extension, test(ciphersuite_name: Cip
     group_info.set_signature(group_info.sign(&bob_credential_bundle));
 
     let encrypted_group_info = welcome_key
-        .aead_seal(&group_info.encode_detached().expect("Could not encode GroupInfo"), &[], &welcome_nonce)
+        .aead_seal(&group_info
+            .encode_detached()
+            .expect("Could not encode GroupInfo"), &[], &welcome_nonce)
         .unwrap();
 
     welcome.set_encrypted_group_info(encrypted_group_info);
@@ -147,6 +147,6 @@ ctest_ciphersuites!(duplicate_ratchet_tree_extension, test(ciphersuite_name: Cip
     // We expect an error because the ratchet tree is duplicated
     assert_eq!(
         error.expect("We expected an error"),
-        GroupError::WelcomeError(WelcomeError::CodecError(CodecError::DecodingError))
+        GroupError::WelcomeError(WelcomeError::DuplicateGroupInfoExtension)
     );
 });

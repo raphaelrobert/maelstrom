@@ -61,12 +61,11 @@ pub fn generate_test_vector(ciphersuite: &'static Ciphersuite) -> MessagesTestVe
 
     // Let's create a group
     let group_id = GroupId::random();
-    let config = GroupConfig::default();
     let mut group = MlsGroup::new(
         &group_id.as_slice(),
         ciphersuite_name,
         key_package_bundle,
-        config,
+        false,
         None,
         ProtocolVersion::default(),
     )
@@ -80,14 +79,16 @@ pub fn generate_test_vector(ciphersuite: &'static Ciphersuite) -> MessagesTestVe
         GroupEpoch(0),
         get_random_vec(ciphersuite.hash_length()),
         get_random_vec(ciphersuite.hash_length()),
-        vec![Box::new(RatchetTreeExtension::new(ratchet_tree.clone()))],
+        vec![RatchetTreeExtension::new(ratchet_tree.clone()).to_extension_struct()],
         ConfirmationTag(Mac {
             mac_value: get_random_vec(ciphersuite.hash_length()),
         }),
         LeafIndex::from(random_u32()),
     );
     let group_secrets = GroupSecrets::random_encoded(ciphersuite, ProtocolVersion::default());
-    let public_group_state = group.export_public_group_state(&credential_bundle).unwrap();
+    let public_group_state = group
+        .export_public_group_state(&credential_bundle, vec![])
+        .unwrap();
 
     // Create some proposals
     let key_package_bundle =
@@ -139,6 +140,7 @@ pub fn generate_test_vector(ciphersuite: &'static Ciphersuite) -> MessagesTestVe
             &[],
             true,
             None,
+            vec![],
         )
         .unwrap();
     let commit = if let MlsPlaintextContentType::Commit(commit) = commit_pt.content() {
