@@ -389,7 +389,10 @@ impl MlsGroup {
 
     /// Loads the state from persisted state
     pub fn load<R: Read>(reader: R) -> Result<MlsGroup, Error> {
-        serde_json::from_reader(reader).map_err(|e| e.into())
+        serde_json::from_reader(reader).map_err(|e| {
+            log::error!("Error reading JSON group {:?}", e);
+            e.into()
+        })
     }
 
     /// Persists the state

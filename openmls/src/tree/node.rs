@@ -1,3 +1,6 @@
+use tls_codec::TlsVecU32;
+use tls_codec::TlsVecU8;
+
 use crate::ciphersuite::*;
 use crate::extensions::*;
 
@@ -137,8 +140,8 @@ impl Node {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ParentNode {
     pub(crate) public_key: HpkePublicKey,
-    pub(crate) unmerged_leaves: Vec<LeafIndex>,
-    pub(crate) parent_hash: Vec<u8>,
+    pub(crate) unmerged_leaves: TlsVecU32<LeafIndex>,
+    pub(crate) parent_hash: TlsVecU8<u8>,
 }
 
 impl ParentNode {
@@ -150,8 +153,8 @@ impl ParentNode {
     ) -> Self {
         Self {
             public_key,
-            unmerged_leaves: unmerged_leaves.to_vec(),
-            parent_hash: parent_hash.to_vec(),
+            unmerged_leaves: unmerged_leaves.into(),
+            parent_hash: parent_hash.into(),
         }
     }
     /// Returns the node's HPKE public key
@@ -160,11 +163,11 @@ impl ParentNode {
     }
     /// Sets the node's parent hash
     pub fn set_parent_hash(&mut self, hash: Vec<u8>) {
-        self.parent_hash = hash;
+        self.parent_hash = hash.into();
     }
     /// Returns the node's unmerged leaves
     pub fn unmerged_leaves(&self) -> &[LeafIndex] {
-        &self.unmerged_leaves
+        self.unmerged_leaves.as_slice()
     }
     /// Adds a leaf to the node's unmerged leaves
     pub fn add_unmerged_leaf(&mut self, leaf: LeafIndex) {

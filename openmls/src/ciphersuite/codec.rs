@@ -1,6 +1,10 @@
 //! Codec implementations for the ciphersuites.
 //! Provides encoding and decoding functionality.
 
+use std::io::Read;
+
+use ::tls_codec::TlsVecU16;
+
 use crate::ciphersuite::*;
 use crate::codec::*;
 
@@ -13,6 +17,18 @@ impl Codec for CiphersuiteName {
     }
     fn decode(cursor: &mut Cursor) -> Result<Self, CodecError> {
         CiphersuiteName::try_from(u16::decode(cursor)?)
+    }
+}
+
+impl tls_codec::Deserialize for CiphersuiteName {
+    fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, ::tls_codec::Error> {
+        let val = u16::tls_deserialize(bytes)?;
+        CiphersuiteName::try_from(val).map_err(|e| {
+            tls_codec::Error::DecodingError(format!(
+                "{} is not a valid value for a cipher suite: {:?}",
+                val, e
+            ))
+        })
     }
 }
 
@@ -30,6 +46,13 @@ impl Codec for SignatureScheme {
     }
 }
 
+impl tls_codec::Deserialize for SignatureScheme {
+    fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, tls_codec::Error> {
+        let val = u16::tls_deserialize(bytes)?;
+        Self::try_from(val).map_err(|e| tls_codec::Error::DecodingError(e))
+    }
+}
+
 impl Codec for SignaturePublicKey {
     fn encode(&self, buffer: &mut Vec<u8>) -> Result<(), CodecError> {
         encode_vec(VecSize::VecU16, buffer, &self.value)?;
@@ -44,6 +67,24 @@ impl Codec for Signature {
     }
     fn decode(cursor: &mut Cursor) -> Result<Self, CodecError> {
         let value = decode_vec(VecSize::VecU16, cursor)?;
+        Ok(Self { value })
+    }
+}
+
+impl tls_codec::Serialize for Signature {
+    fn tls_serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), ::tls_codec::Error> {
+        debug_assert!(self.value.len() < u16::MAX as usize);
+        if self.value.len() > u16::MAX as usize {
+            return Err(tls_codec::Error::InvalidVectorLength);
+        }
+        (self.value.len() as u16).tls_serialize(writer)?;
+        writer.write_all(&self.value).map_err(|e| e.into())
+    }
+}
+
+impl tls_codec::Deserialize for Signature {
+    fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, ::tls_codec::Error> {
+        let value = TlsVecU16::<u8>::tls_deserialize(bytes)?.into();
         Ok(Self { value })
     }
 }

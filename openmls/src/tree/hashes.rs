@@ -130,7 +130,7 @@ impl RatchetTree {
         if let Ok(parent_index) = treemath::parent(index, self.leaf_count()) {
             // Check if the parent node is not blank
             if let Some(parent_node) = &self.nodes[parent_index].node {
-                unmerged_leaves.extend_from_slice(&parent_node.unmerged_leaves);
+                unmerged_leaves.extend_from_slice(parent_node.unmerged_leaves.as_slice());
             }
         };
         // Convert the exclusion list to a HashSet for faster searching
@@ -189,7 +189,12 @@ impl RatchetTree {
                     tree,
                     index,
                     former_index_sibling,
-                    &tree.nodes[index].node.as_ref().unwrap().parent_hash,
+                    tree.nodes[index]
+                        .node
+                        .as_ref()
+                        .unwrap()
+                        .parent_hash
+                        .as_slice(),
                 )
                 // It is ok to use `unwrap()` here, since we can be sure the node is not blank
                 .unwrap()

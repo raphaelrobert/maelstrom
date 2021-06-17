@@ -6,6 +6,7 @@ pub use errors::*;
 use evercrypt::prelude::SignatureError;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+use tls_codec::TlsVecU16;
 
 use crate::ciphersuite::*;
 use crate::codec::*;
@@ -64,9 +65,9 @@ impl Credential {
         }
     }
     /// Get the identity of a given credential.
-    pub fn identity(&self) -> &Vec<u8> {
+    pub fn identity(&self) -> &[u8] {
         match &self.credential {
-            MlsCredentialType::Basic(basic_credential) => &basic_credential.identity,
+            MlsCredentialType::Basic(basic_credential) => basic_credential.identity.as_slice(),
             // TODO: implement getter for identity for X509 certificates. See issue #134.
             MlsCredentialType::X509(_) => panic!("X509 certificates are not yet implemented."),
         }
@@ -102,9 +103,9 @@ impl From<MlsCredentialType> for Credential {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BasicCredential {
-    pub identity: Vec<u8>,
-    pub signature_scheme: SignatureScheme,
-    pub public_key: SignaturePublicKey,
+    identity: TlsVecU16<u8>,
+    signature_scheme: SignatureScheme,
+    public_key: SignaturePublicKey,
 }
 
 impl BasicCredential {
@@ -154,7 +155,7 @@ impl CredentialBundle {
         let (private_key, public_key) = signature_scheme.new_keypair()?.into_tuple();
         let mls_credential = match credential_type {
             CredentialType::Basic => BasicCredential {
-                identity,
+                identity: identity.into(),
                 signature_scheme,
                 public_key,
             },

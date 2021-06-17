@@ -34,6 +34,7 @@ use crate::{
 
 use serde::{self, Deserialize, Serialize};
 use std::convert::TryFrom;
+use tls_codec::Deserialize as TlsDeserialize;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TreeKemTestVector {
@@ -66,7 +67,7 @@ pub fn run_test_vector(test_vector: TreeKemTestVector) -> Result<(), TreeKemTest
     let ciphersuite = Config::ciphersuite(ciphersuite).expect("Invalid ciphersuite");
 
     let tree_extension_before =
-        RatchetTreeExtension::new_from_bytes(&hex_to_bytes(&test_vector.ratchet_tree_before))
+        RatchetTreeExtension::new_from_bytes(&mut hex_to_bytes(&test_vector.ratchet_tree_before))
             .expect("Error decoding ratchet tree");
     let ratchet_tree_before = tree_extension_before.into_vector();
 
@@ -76,8 +77,9 @@ pub fn run_test_vector(test_vector: TreeKemTestVector) -> Result<(), TreeKemTest
         ciphersuite,
     );
 
-    let my_key_package = KeyPackage::decode_detached(&hex_to_bytes(&test_vector.my_key_package))
-        .expect("failed to decode my_key_package from test vector.");
+    let my_key_package =
+        KeyPackage::tls_deserialize(&mut hex_to_bytes(&test_vector.my_key_package).as_slice())
+            .expect("failed to decode my_key_package from test vector.");
 
     // We clone the leaf secret here, because we need it later to re-create the
     // KeyPackageBundle.
@@ -107,7 +109,7 @@ pub fn run_test_vector(test_vector: TreeKemTestVector) -> Result<(), TreeKemTest
     }
 
     let tree_extension_after =
-        RatchetTreeExtension::new_from_bytes(&hex_to_bytes(&test_vector.ratchet_tree_after))
+        RatchetTreeExtension::new_from_bytes(&mut hex_to_bytes(&test_vector.ratchet_tree_after))
             .expect("Error decoding ratchet tree");
     let ratchet_tree_after = tree_extension_after.into_vector();
 
@@ -221,7 +223,7 @@ pub fn run_test_vector(test_vector: TreeKemTestVector) -> Result<(), TreeKemTest
     }
 
     let tree_extension_after =
-        RatchetTreeExtension::new_from_bytes(&hex_to_bytes(&test_vector.ratchet_tree_after))
+        RatchetTreeExtension::new_from_bytes(&mut hex_to_bytes(&test_vector.ratchet_tree_after))
             .expect("Error decoding ratchet tree");
     let ratchet_tree_after = tree_extension_after.into_vector();
 
@@ -239,6 +241,7 @@ pub fn run_test_vector(test_vector: TreeKemTestVector) -> Result<(), TreeKemTest
 
 #[test]
 fn read_test_vector() {
+    let _ = pretty_env_logger::try_init();
     let tests: Vec<TreeKemTestVector> = read("test_vectors/kat_tree_kem_openmls.json");
 
     for test_vector in tests {

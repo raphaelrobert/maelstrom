@@ -9,8 +9,6 @@ use crate::{
 
 #[test]
 fn test_mls_group_persistence() {
-    use std::fs::File;
-    use std::path::Path;
     let ciphersuite = &Config::supported_ciphersuites()[0];
 
     // Define credential bundles
@@ -37,16 +35,16 @@ fn test_mls_group_persistence() {
     )
     .unwrap();
 
-    let path = Path::new("target/test_mls_group_serialization.json");
-    let out_file = &mut File::create(&path).expect("Could not create file");
+    let mut file_out = tempfile::NamedTempFile::new().expect("Could not create file");
     alice_group
-        .save(out_file)
+        .save(&mut file_out)
         .expect("Could not write group state to file");
 
-    let in_file = File::open(&path).expect("Could not open file");
-
+    let file_in = file_out
+        .reopen()
+        .expect("Error re-opening serialized group state file");
     let alice_group_deserialized =
-        MlsGroup::load(in_file).expect("Could not deserialize managed group");
+        MlsGroup::load(file_in).expect("Could not deserialize managed group");
 
     assert_eq!(alice_group, alice_group_deserialized);
 }

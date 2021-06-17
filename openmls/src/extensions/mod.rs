@@ -16,6 +16,7 @@ pub use key_package_id_extension::KeyIdExtension;
 pub use life_time_extension::LifetimeExtension;
 pub(crate) use parent_hash_extension::ParentHashExtension;
 pub use ratchet_tree_extension::RatchetTreeExtension;
+use tls_codec::{Deserialize as TlsDeserialize, TlsVecU32};
 
 #[cfg(test)]
 mod test_extensions;
@@ -73,6 +74,15 @@ impl Codec for ExtensionType {
     }
 }
 
+impl tls_codec::Deserialize for ExtensionType {
+    fn tls_deserialize<R: std::io::Read>(bytes: &mut R) -> Result<Self, tls_codec::Error> {
+        let value = u16::tls_deserialize(bytes)?;
+        Self::try_from(value).map_err(|e| {
+            tls_codec::Error::DecodingError(format!("{} is not a valid extension type.", value))
+        })
+    }
+}
+
 /// # Extension struct
 ///
 /// An extension has an `ExtensionType` and an opaque payload (byte vector).
@@ -124,6 +134,29 @@ impl Codec for ExtensionStruct {
             extension_type,
             extension_data,
         })
+    }
+}
+
+impl tls_codec::Deserialize for ExtensionStruct {
+    fn tls_deserialize<R: std::io::Read>(bytes: &mut R) -> Result<Self, tls_codec::Error> {
+        let extension_type = ExtensionType::tls_deserialize(bytes)?;
+        let extension_data = TlsVecU32::<u8>::tls_deserialize(bytes)?.into();
+        Ok(Self {
+            extension_type,
+            extension_data,
+        })
+    }
+}
+
+impl tls_codec::TlsSize for ExtensionStruct {
+    fn serialized_len(&self) -> usize {
+        todo!()
+    }
+}
+
+impl tls_codec::Serialize for ExtensionStruct {
+    fn tls_serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), tls_codec::Error> {
+        todo!()
     }
 }
 
@@ -181,6 +214,40 @@ pub(crate) fn extensions_vec_from_cursor(
     }
 
     Ok(result)
+}
+
+fn build_extensions(
+    extensions: &[ExtensionStruct],
+) -> Result<Vec<Box<dyn Extension>>, &'static str> {
+    // Now create the result vector of `Extension`s.
+    let mut result: Vec<Box<dyn Extension>> = Vec::new();
+    for extension in extensions.iter() {
+        // Make sure there are no duplicate extensions.
+        if result
+            .iter()
+            .any(|e| e.extension_type() == extension.extension_type)
+        {
+            return Err("Found duplicate extension");
+        }
+        let ext = match from_bytes(extension.extension_type, &extension.extension_data) {
+            Ok(r) => r,
+            Err(_) => return Err("Error decoding extension"),
+        };
+        result.push(ext);
+    }
+
+    Ok(result)
+}
+
+/// Same as `extensions_vec_from_cursor` but for a [`std::io::Reader`].
+pub(crate) fn extensions_vec_from_reader<R: std::io::Read>(
+    bytes: &mut R,
+) -> Result<Vec<Box<dyn Extension>>, tls_codec::Error> {
+    // First parse the extension bytes into the `ExtensionStruct`.
+    let extension_struct_vec = TlsVecU32::<ExtensionStruct>::tls_deserialize(bytes)?;
+
+    build_extensions(extension_struct_vec.as_slice())
+        .map_err(|e| tls_codec::Error::DecodingError(e.to_string()))
 }
 
 /// # Extension

@@ -17,6 +17,7 @@ use crate::{
 use evercrypt::prelude::random_vec;
 
 use serde::{self, Deserialize, Serialize};
+use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize, TlsVecU32};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MessagesTestVector {
@@ -169,7 +170,9 @@ pub fn generate_test_vector(ciphersuite: &'static Ciphersuite) -> MessagesTestVe
         key_package: bytes_to_hex(&key_package.encode_detached().unwrap()), // serialized KeyPackage,
         capabilities: bytes_to_hex(&capabilities.encode_detached().unwrap()), // serialized Capabilities,
         lifetime: bytes_to_hex(&lifetime.encode_detached().unwrap()), // serialized {uint64 not_before; uint64 not_after;},
-        ratchet_tree: bytes_to_hex(&ratchet_tree.encode_detached().unwrap()), /* serialized optional<Node> ratchet_tree<1..2^32-1>; */
+        ratchet_tree: bytes_to_hex(
+            &TlsVecU32::<Option<Node>>::tls_serialize_detached(&ratchet_tree.into()).unwrap(),
+        ), /* serialized optional<Node> ratchet_tree<1..2^32-1>; */
 
         group_info: bytes_to_hex(&group_info.encode_detached().unwrap()), /* serialized GroupInfo */
         group_secrets: bytes_to_hex(&group_secrets.unwrap()), /* serialized GroupSecrets */
@@ -213,8 +216,9 @@ fn write_test_vectors() {
 
 pub fn run_test_vector(tv: MessagesTestVector) -> Result<(), MessagesTestVectorError> {
     // KeyPackage
-    let tv_key_package = &hex_to_bytes(&tv.key_package);
-    let my_key_package = KeyPackage::decode_detached(&tv_key_package)
+    let tv_key_package = hex_to_bytes(&tv.key_package);
+    let mut tv_key_package = tv_key_package.as_slice();
+    let my_key_package = KeyPackage::tls_deserialize(&mut tv_key_package)
         .unwrap()
         .encode_detached()
         .unwrap();
@@ -261,10 +265,12 @@ pub fn run_test_vector(tv: MessagesTestVector) -> Result<(), MessagesTestVectorE
     }
 
     // RatchetTree
-    let tv_ratchet_tree = &hex_to_bytes(&tv.ratchet_tree);
-    let mut cursor = Cursor::new(tv_ratchet_tree);
-    let dec_ratchet_tree: Vec<Option<Node>> = decode_vec(VecSize::VecU32, &mut cursor).unwrap();
-    let my_ratchet_tree = dec_ratchet_tree.encode_detached().unwrap();
+    let tv_ratchet_tree = hex_to_bytes(&tv.ratchet_tree);
+    let mut tv_ratchet_tree = tv_ratchet_tree.as_slice();
+    let dec_ratchet_tree =
+        TlsVecU32::<Option<Node>>::tls_deserialize(&mut tv_ratchet_tree).unwrap();
+    let my_ratchet_tree =
+        TlsVecU32::<Option<Node>>::tls_serialize_detached(&dec_ratchet_tree.into()).unwrap();
     if tv_ratchet_tree != &my_ratchet_tree {
         log::error!("  RatchetTree encoding mismatch");
         log::debug!("    Encoded: {:x?}", my_ratchet_tree);

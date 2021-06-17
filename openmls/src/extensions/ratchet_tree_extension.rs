@@ -22,7 +22,8 @@
 //!
 //! optional<Node> ratchet_tree<1..2^32-1>;
 //! ```
-use crate::codec::*;
+use tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize, TlsVecU32};
+
 use crate::tree::node::*;
 
 use super::{
@@ -32,17 +33,17 @@ use super::{
 
 #[derive(PartialEq, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RatchetTreeExtension {
-    tree: Vec<Option<Node>>,
+    tree: TlsVecU32<Option<Node>>,
 }
 
 impl RatchetTreeExtension {
     /// Build a new extension from a vector of `Node`s.
     pub fn new(tree: Vec<Option<Node>>) -> Self {
-        RatchetTreeExtension { tree }
+        RatchetTreeExtension { tree: tree.into() }
     }
 
     pub(crate) fn into_vector(self) -> Vec<Option<Node>> {
-        self.tree
+        self.tree.into()
     }
 }
 
@@ -53,20 +54,17 @@ impl Extension for RatchetTreeExtension {
     }
 
     /// Build a new RatchetTreeExtension from a byte slice.
-    fn new_from_bytes(bytes: &[u8]) -> Result<Self, ExtensionError>
-    where
-        Self: Sized,
-    {
-        let cursor = &mut Cursor::new(bytes);
-        match decode_vec(VecSize::VecU32, cursor) {
+    fn new_from_bytes(mut bytes: &[u8]) -> Result<Self, ExtensionError> {
+        match TlsVecU32::<Option<Node>>::tls_deserialize(&mut bytes) {
             Ok(tree) => Ok(Self { tree }),
             Err(_) => Err(ExtensionError::RatchetTree(RatchetTreeError::Invalid)),
         }
     }
 
+    // TODO: This should return a Result.
     fn to_extension_struct(&self) -> ExtensionStruct {
-        let mut extension_data: Vec<u8> = vec![];
-        encode_vec(VecSize::VecU32, &mut extension_data, &self.tree).unwrap();
+        let mut extension_data: Vec<u8> = Vec::with_capacity(self.tree.len() + 4);
+        self.tree.tls_serialize(&mut extension_data).unwrap();
         let extension_type = ExtensionType::RatchetTree;
         ExtensionStruct::new(extension_type, extension_data)
     }

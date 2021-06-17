@@ -26,7 +26,7 @@ fn validate_remove(
 
 fn own_identity(managed_group: &ManagedGroup) -> Vec<u8> {
     match managed_group.credential() {
-        Ok(credential) => credential.identity().clone(),
+        Ok(credential) => credential.identity().to_vec(),
         Err(_) => "us".as_bytes().to_vec(),
     }
 }

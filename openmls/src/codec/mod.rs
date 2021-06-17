@@ -67,6 +67,11 @@ impl<'a> Cursor {
     pub(crate) fn raw(&self) -> &[u8] {
         &self.buffer[self.position..]
     }
+
+    pub(crate) fn raw_vec(&mut self) -> Vec<u8> {
+        self.position = self.buffer.len();
+        self.buffer[self.position..].to_vec()
+    }
 }
 
 pub trait Codec: Sized {
@@ -75,6 +80,7 @@ pub trait Codec: Sized {
     }
 
     fn decode(_cursor: &mut Cursor) -> Result<Self, CodecError> {
+        println!("{:?}", backtrace::Backtrace::new());
         unimplemented!();
     }
 
@@ -305,9 +311,10 @@ pub fn encode_vec<T: Codec>(
 
 pub fn decode_vec<T: Codec>(vec_size: VecSize, cursor: &mut Cursor) -> Result<Vec<T>, CodecError> {
     log::trace!(
-        "Decoding vector with size {:?}: {:X?}",
+        "Decoding vector with size {:?}: {:X?}\n{:?}",
         vec_size,
-        cursor.raw()
+        cursor.raw(),
+        backtrace::Backtrace::new()
     );
     let mut result: Vec<T> = Vec::new();
     let len;

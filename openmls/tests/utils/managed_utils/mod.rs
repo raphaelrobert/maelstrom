@@ -215,7 +215,7 @@ impl ManagedTestSetup {
         group.members = sender
             .get_members_of_group(&group.group_id)?
             .iter()
-            .map(|(index, cred)| (*index, cred.identity().clone()))
+            .map(|(index, cred)| (*index, cred.identity().to_vec()))
             .collect();
         println!("Members still in the group:");
         for (index, member_id) in &group.members {
