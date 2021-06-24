@@ -19,7 +19,7 @@
 //! The high-level errors API in [`error`](`error`) are a different error
 //! representation as `u16` for C FFI APIs.
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![forbid(unsafe_code)]
+#![cfg_attr(not(test), forbid(unsafe_code))]
 
 #[macro_use]
 mod utils;
@@ -30,6 +30,7 @@ pub mod error;
 #[cfg(any(feature = "expose-test-vectors", test))]
 #[macro_use]
 pub mod test_util;
+pub mod binary_tree;
 
 pub mod ciphersuite;
 mod codec;
