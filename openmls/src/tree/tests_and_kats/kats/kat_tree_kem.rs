@@ -302,7 +302,7 @@ pub fn generate_test_vector(n_leaves: u32, ciphersuite: &'static Ciphersuite) ->
         false, // use_ratchet_tree_extension
         callbacks,
     );
-    let setup = ManagedTestSetup::new(managed_group_config, n_leaves as usize);
+    let setup = ManagedTestSetup::new(managed_group_config, n_leaves as usize, true);
 
     // - I am the client with key package `my_key_package`
     // - I was added by the client at leaf index add_sender
